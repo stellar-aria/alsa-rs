@@ -175,6 +175,33 @@ impl Seq {
     pub fn remove_events(&self, condition: RemoveEvents) -> Result<()> {
         acheck!(snd_seq_remove_events(self.0, condition.0)).map(|_| ())
     }
+
+    /// Outputs a UMP event
+    pub fn ump_event_output(&self, e: &mut UmpEvent) -> Result<u32> {
+        acheck!(snd_seq_ump_event_output(self.0, &mut e.0)).map(|q| q as u32)
+    }
+
+    /// Outputs a UMP event to the buffer
+    pub fn ump_event_output_buffer(&self, e: &mut UmpEvent) -> Result<u32> {
+        acheck!(snd_seq_ump_event_output_buffer(self.0, &mut e.0)).map(|q| q as u32)
+    }
+
+    /// Outputs a UMP event directly
+    pub fn ump_event_output_direct(&self, e: &mut UmpEvent) -> Result<u32> {
+        acheck!(snd_seq_ump_event_output_direct(self.0, &mut e.0)).map(|q| q as u32)
+    }
+
+    /// Gets UMP endpoint information for a client
+    pub fn get_ump_endpoint_info(&self, client: i32) -> Result<super::ump::UmpEndpointInfo> {
+        let info = super::ump::UmpEndpointInfo::empty()?;
+        acheck!(snd_seq_get_ump_endpoint_info(self.0, client as c_int, info.0 as *mut c_void)).map(|_| info)
+    }
+
+    /// Gets UMP block information for a client
+    pub fn get_ump_block_info(&self, client: i32, block: i32) -> Result<super::ump::UmpBlockInfo> {
+        let info = super::ump::UmpBlockInfo::empty()?;
+        acheck!(snd_seq_get_ump_block_info(self.0, client as c_int, block as c_int, info.0 as *mut c_void)).map(|_| info)
+    }
 }
 
 /// Struct for receiving input events from a sequencer. The methods offered by this
@@ -862,6 +889,66 @@ impl<'a> fmt::Debug for Event<'a> {
         if let Some(z) = self.get_data::<[u8; 12]>() { x.field(&z); }
         if let Some(z) = self.get_ext() { x.field(&z); }
         x.finish()
+    }
+}
+
+/// [snd_seq_ump_event_t](https://www.alsa-project.org/alsa-doc/alsa-lib/group___sequencer.html) wrapper
+///
+/// Represents a UMP (Universal MIDI Packet) event for MIDI 2.0.
+/// UMP events can carry up to 4 32-bit words (128 bits total).
+pub struct UmpEvent(alsa::snd_seq_ump_event_t);
+
+unsafe impl Send for UmpEvent {}
+
+impl UmpEvent {
+    /// Creates a new UMP event from UMP packet data
+    ///
+    /// # Arguments
+    /// * `ump` - Array of up to 4 32-bit words representing the UMP packet
+    pub fn new(ump: &[u32]) -> Self {
+        let mut event: alsa::snd_seq_ump_event_t = unsafe { mem::zeroed() };
+        let len = core::cmp::min(ump.len(), 4);
+        unsafe {
+            for i in 0..len {
+                event.__bindgen_anon_1.ump[i] = ump[i];
+            }
+        }
+        UmpEvent(event)
+    }
+
+    /// Gets the UMP packet data
+    pub fn get_ump(&self) -> &[u32; 4] {
+        unsafe { &self.0.__bindgen_anon_1.ump }
+    }
+
+    /// Gets a mutable reference to the UMP packet data
+    pub fn get_ump_mut(&mut self) -> &mut [u32; 4] {
+        unsafe { &mut self.0.__bindgen_anon_1.ump }
+    }
+
+    pub fn set_source(&mut self, p: i32) { self.0.source.port = p as u8 }
+    pub fn set_dest(&mut self, d: Addr) { 
+        self.0.dest.client = d.client as c_uchar; 
+        self.0.dest.port = d.port as c_uchar; 
+    }
+    pub fn set_queue(&mut self, q: i32) { self.0.queue = q as c_uchar; }
+
+    pub fn get_source(&self) -> Addr { 
+        Addr { client: self.0.source.client as i32, port: self.0.source.port as i32 } 
+    }
+    pub fn get_dest(&self) -> Addr { 
+        Addr { client: self.0.dest.client as i32, port: self.0.dest.port as i32 } 
+    }
+    pub fn get_queue(&self) -> i32 { self.0.queue as i32 }
+}
+
+impl fmt::Debug for UmpEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UmpEvent")
+            .field("source", &self.get_source())
+            .field("dest", &self.get_dest())
+            .field("ump", &self.get_ump())
+            .finish()
     }
 }
 
