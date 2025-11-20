@@ -104,7 +104,7 @@ pub use crate::card::Card as Card;
 mod ctl_int;
 pub mod ctl {
     //! Control device API
-    pub use super::ctl_int::{Ctl, CardInfo, DeviceIter, ElemIface, ElemId, ElemList, ElemType, ElemValue, ElemInfo};
+    pub use super::ctl_int::{Ctl, CardInfo, DeviceIter, UmpDeviceIter, ElemIface, ElemId, ElemList, ElemType, ElemValue, ElemInfo};
 }
 
 pub use crate::ctl::Ctl as Ctl;
@@ -130,6 +130,9 @@ pub use crate::mixer::Mixer as Mixer;
 
 pub mod seq;
 pub use crate::seq::Seq as Seq;
+
+pub mod ump;
+pub use crate::ump::Ump as Ump;
 
 mod io;
 pub use crate::io::Output;

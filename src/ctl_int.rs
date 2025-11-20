@@ -43,6 +43,41 @@ impl<'a> Iterator for DeviceIter<'a> {
     }
 }
 
+/// Iterator over UMP rawmidi devices
+#[derive(Debug)]
+pub struct UmpDeviceIter<'a> {
+    ctl: &'a Ctl,
+    device: c_int,
+}
+
+impl<'a> UmpDeviceIter<'a> {
+    pub fn new(c: &'a Ctl) -> UmpDeviceIter<'a> { UmpDeviceIter { ctl: c, device: -1 }}
+}
+
+impl<'a> Iterator for UmpDeviceIter<'a> {
+    type Item = Result<super::ump::UmpEndpointInfo>;
+    fn next(&mut self) -> Option<Result<super::ump::UmpEndpointInfo>> {
+        match self.ctl.ump_next_device(&mut self.device) {
+            Err(e) => return Some(Err(e)),
+            Ok(_) if self.device == -1 => return None,
+            _ => {},
+        }
+        
+        match super::ump::UmpEndpointInfo::empty() {
+            Err(e) => Some(Err(e)),
+            Ok(mut info) => {
+                unsafe {
+                    alsa::snd_ump_endpoint_info_set_device(info.0, self.device as c_uint);
+                };
+                match self.ctl.ump_endpoint_info(&mut info) {
+                    Ok(_) => Some(Ok(info)),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        }
+    }
+}
+
 /// [snd_ctl_t](http://www.alsa-project.org/alsa-doc/alsa-lib/group___control.html) wrapper
 #[derive(Debug)]
 pub struct Ctl(*mut alsa::snd_ctl_t);
@@ -137,6 +172,22 @@ impl Ctl {
             info.set_stream(direction);
             acheck!(snd_ctl_pcm_info(self.0, info.0)).map(|_| info )
         })
+    }
+
+    /// Gets the next UMP device number. Returns -1 when no more devices.
+    /// Start with device = -1 to get the first device.
+    pub fn ump_next_device(&self, device: &mut c_int) -> Result<()> {
+        acheck!(snd_ctl_ump_next_device(self.0, device)).map(|_| ())
+    }
+
+    /// Gets UMP endpoint information for a device
+    pub fn ump_endpoint_info(&self, info: &mut super::ump::UmpEndpointInfo) -> Result<()> {
+        acheck!(snd_ctl_ump_endpoint_info(self.0, info.0)).map(|_| ())
+    }
+
+    /// Gets UMP block information for a device
+    pub fn ump_block_info(&self, info: &mut super::ump::UmpBlockInfo) -> Result<()> {
+        acheck!(snd_ctl_ump_block_info(self.0, info.0)).map(|_| ())
     }
 }
 
