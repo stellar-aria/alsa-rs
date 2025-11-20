@@ -43,6 +43,39 @@ impl<'a> Iterator for DeviceIter<'a> {
     }
 }
 
+/// Iterator over UMP rawmidi devices
+#[derive(Debug)]
+pub struct UmpDeviceIter<'a> {
+    ctl: &'a Ctl,
+    device: c_int,
+}
+
+impl<'a> UmpDeviceIter<'a> {
+    pub fn new(c: &'a Ctl) -> UmpDeviceIter<'a> { UmpDeviceIter { ctl: c, device: -1 }}
+}
+
+impl<'a> Iterator for UmpDeviceIter<'a> {
+    type Item = Result<super::ump::UmpEndpointInfo>;
+    fn next(&mut self) -> Option<Result<super::ump::UmpEndpointInfo>> {
+        match self.ctl.ump_next_device(&mut self.device) {
+            Err(e) => return Some(Err(e)),
+            Ok(_) if self.device == -1 => return None,
+            _ => {},
+        }
+        
+        match super::ump::UmpEndpointInfo::empty() {
+            Err(e) => Some(Err(e)),
+            Ok(mut info) => {
+                info.set_device(self.device as u32);
+                match self.ctl.ump_endpoint_info(&mut info) {
+                    Ok(_) => Some(Ok(info)),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        }
+    }
+}
+
 /// [snd_ctl_t](http://www.alsa-project.org/alsa-doc/alsa-lib/group___control.html) wrapper
 #[derive(Debug)]
 pub struct Ctl(*mut alsa::snd_ctl_t);
@@ -137,6 +170,22 @@ impl Ctl {
             info.set_stream(direction);
             acheck!(snd_ctl_pcm_info(self.0, info.0)).map(|_| info )
         })
+    }
+
+    /// Gets the next UMP device number. Returns -1 when no more devices.
+    /// Start with device = -1 to get the first device.
+    pub fn ump_next_device(&self, device: &mut c_int) -> Result<()> {
+        acheck!(snd_ctl_ump_next_device(self.0, device)).map(|_| ())
+    }
+
+    /// Gets UMP endpoint information for a device
+    pub fn ump_endpoint_info(&self, info: &mut super::ump::UmpEndpointInfo) -> Result<()> {
+        acheck!(snd_ctl_ump_endpoint_info(self.0, info.0)).map(|_| ())
+    }
+
+    /// Gets UMP block information for a device
+    pub fn ump_block_info(&self, info: &mut super::ump::UmpBlockInfo) -> Result<()> {
+        acheck!(snd_ctl_ump_block_info(self.0, info.0)).map(|_| ())
     }
 }
 
@@ -549,6 +598,30 @@ impl EventMask {
    pub fn info(&self) -> bool { return (!self.remove()) && (self.0 & (1 << 1) != 0); }
    pub fn add(&self) -> bool { return (!self.remove()) && (self.0 & (1 << 2) != 0); }
    pub fn tlv(&self) -> bool { return (!self.remove()) && (self.0 & (1 << 3) != 0); }
+}
+
+#[test]
+fn ump_device_iter_does_not_panic() {
+    extern crate std;
+    use alloc::vec::Vec;
+
+    // On systems without UMP hardware this should yield zero items; on systems with
+    // UMP devices it should yield at least one. Either way it must not panic.
+    match super::Ctl::new("hw:0", false) {
+        Ok(ctl) => {
+            let infos: Vec<_> = UmpDeviceIter::new(&ctl).collect();
+            std::println!("UMP devices on hw:0: {}", infos.len());
+            for info in &infos {
+                match info {
+                    Ok(i) => std::println!("  device={} name={:?}", i.get_device(), i.get_name()),
+                    Err(e) => std::println!("  error: {:?}", e),
+                }
+            }
+        }
+        Err(_) => {
+            std::println!("hw:0 not available, skipping UMP device iteration");
+        }
+    }
 }
 
 #[test]
